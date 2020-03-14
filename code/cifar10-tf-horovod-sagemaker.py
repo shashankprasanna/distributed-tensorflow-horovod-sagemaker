@@ -1,3 +1,4 @@
+# Change 1: Import horovod and keras backend
 import tensorflow as tf
 import horovod.tensorflow.keras as hvd
 
@@ -98,7 +99,34 @@ def save_history(path, history):
     with codecs.open(path, 'w', encoding='utf-8') as f:
         json.dump(history_for_json, f, separators=(',', ':'), sort_keys=True, indent=4) 
 
+# To use ResNet model instead of custom model uncomment this function
+# def get_resnet_model(input_shape, learning_rate, weight_decay, optimizer, momentum, hvd):
+#     input_tensor = Input(shape=input_shape)
+#     base_model = keras.applications.resnet50.ResNet50(include_top=False,
+#                                                       weights=None,
+#                                                       input_tensor=input_tensor,
+#                                                       input_shape=input_shape,
+#                                                       classes=None)
+#     x = Flatten()(base_model.output)
+#     predictions = Dense(NUM_CLASSES, activation='softmax')(x)
+#     model = Model(inputs=base_model.input, outputs=predictions)
+    
+#     size = hvd.size()
+#     if optimizer.lower() == 'sgd':
+#         opt = SGD(lr=learning_rate * size, decay=weight_decay, momentum=momentum)
+#     elif optimizer.lower() == 'rmsprop':
+#         opt = RMSprop(lr=learning_rate * size, decay=weight_decay)
+#     else:
+#         opt = Adam(lr=learning_rate * size, decay=weight_decay)
 
+#     opt = hvd.DistributedOptimizer(opt)
+
+#     model.compile(loss='categorical_crossentropy',
+#                   optimizer=opt,
+#                   metrics=['accuracy'])
+#     return model
+        
+        
 def main(args):
     # Hyper-parameters
     epochs = args.epochs
@@ -115,10 +143,11 @@ def main(args):
     eval_dir = args.eval
     tensorboard_logs = args.tensorboard_logs
     
+    # Change 2: Initialize horovod and get the size of the cluster
     hvd.init()
     size = hvd.size()
     
-    # Change 3 - pin GPU to be used to process local rank (one GPU per process)
+    # Change 3 - Pin GPU to local process (one GPU per process)
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     config.gpu_options.visible_device_list = str(hvd.local_rank())
@@ -130,6 +159,7 @@ def main(args):
     
     input_shape = (HEIGHT, WIDTH, DEPTH)
     
+    # Change 6: Add callbacks for syncing initial state, and saving checkpoints only on 1st worker (rank 0)
     callbacks = []
     callbacks.append(hvd.callbacks.BroadcastGlobalVariablesCallback(0))
     callbacks.append(hvd.callbacks.MetricAverageCallback())
@@ -141,9 +171,12 @@ def main(args):
         callbacks.append(TensorBoard(log_dir=logdir))
         callbacks.append(Sync2S3(logdir=logdir, s3logdir=tensorboard_logs))
     
-    model = get_model(lr, weight_decay, optimizer, momentum, hvd)
+    model = get_model(input_shape, lr, weight_decay, optimizer, momentum, hvd)
+    # To use ResNet model instead of custom model comment the above line and uncomment the following: 
+    #model = get_resnet_model(input_shape, lr, weight_decay, optimizer, momentum, hvd)
 
     # Train model
+    # Change 7: Update the number of steps/epoch
     history = model.fit(train_dataset,
                         steps_per_epoch  = (NUM_TRAIN_IMAGES // batch_size) // size,
                         validation_data  = val_dataset,
@@ -166,6 +199,7 @@ def main(args):
 
 if __name__ == "__main__":
     
+    # Change 8: Update script to accept hyperparameters as command line arguments
     parser = argparse.ArgumentParser()
 
     # Hyper-parameters

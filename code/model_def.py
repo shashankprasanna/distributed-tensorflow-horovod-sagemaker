@@ -3,15 +3,12 @@ from tensorflow.keras.layers import Activation, Conv2D, Dense, Dropout, Flatten,
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam, SGD, RMSprop
 
-HEIGHT = 32
-WIDTH = 32
-DEPTH = 3
 NUM_CLASSES = 10
 
-def get_model(learning_rate, weight_decay, optimizer, momentum, hvd):
+def get_model(input_shape, learning_rate, weight_decay, optimizer, momentum, hvd):
 
     model = Sequential()
-    model.add(Conv2D(32, (3, 3), padding='same', input_shape=(HEIGHT, WIDTH, DEPTH)))
+    model.add(Conv2D(32, (3, 3), padding='same', input_shape=input_shape))
     model.add(BatchNormalization())
     model.add(Activation('relu'))
     model.add(Conv2D(32, (3, 3)))
@@ -47,6 +44,7 @@ def get_model(learning_rate, weight_decay, optimizer, momentum, hvd):
 
     size = hvd.size()
 
+    # Change 4: Scale the learning using the size of the cluster (total number of workers)
     if optimizer.lower() == 'sgd':
         opt = SGD(lr=learning_rate * size, decay=weight_decay, momentum=momentum)
     elif optimizer.lower() == 'rmsprop':
@@ -54,6 +52,7 @@ def get_model(learning_rate, weight_decay, optimizer, momentum, hvd):
     else:
         opt = Adam(lr=learning_rate * size, decay=weight_decay)
 
+    # Change 5: Wrap your Keras optimizer using Horovod to make it a distributed optimizer
     opt = hvd.DistributedOptimizer(opt)
 
     model.compile(loss='categorical_crossentropy',
